@@ -80,14 +80,14 @@ class SoACallConv(BaseCallConv):
         raise NotImplementedError("Can't call SoA return function directly")
 
 
-def soa_wrap_function(context, lib, fndesc, nvvm_options):
+def soa_wrap_function(context, lib, fndesc, nvvm_options,
+                      wrapper_name):
     """
     Wrap a Numba ABI function such that it returns tuple values into SoA
     arguments.
     """
-    device_function_name = lib.name
     library = lib.codegen.create_library(f'{lib.name}_function_',
-                                         entry_name=device_function_name,
+                                         entry_name=wrapper_name,
                                          nvvm_options=nvvm_options)
     library.add_linking_library(lib)
 
@@ -105,7 +105,7 @@ def soa_wrap_function(context, lib, fndesc, nvvm_options):
     # Define the caller - populate it with a call to the callee and return
     # its return value
 
-    wrapper = ir.Function(wrapper_module, wrapperty, device_function_name)
+    wrapper = ir.Function(wrapper_module, wrapperty, wrapper_name)
     builder = ir.IRBuilder(wrapper.append_basic_block(''))
 
     arginfo = context.get_arg_packer(argtypes)
@@ -131,7 +131,7 @@ def soa_wrap_function(context, lib, fndesc, nvvm_options):
 
 @global_compiler_lock
 def compile_ptx_soa(pyfunc, sig, debug=False, lineinfo=False, device=False,
-                    fastmath=False, cc=None, opt=True):
+                    fastmath=False, cc=None, opt=True, abi_info=None):
     # This is just a copy of Numba's compile_ptx, with a modification to return
     # values as SoA and some simplifications to keep it short
     nvvm_options = {
@@ -139,8 +139,12 @@ def compile_ptx_soa(pyfunc, sig, debug=False, lineinfo=False, device=False,
         'opt': 3 if opt else 0
     }
 
+    if abi_info:
+        wrapper_name = abi_info['abi_name']
+    else:
+        wrapper_name = pyfunc.__name__
+
     args, return_type = sigutils.normalize_signature(sig)
-    breakpoint()
 
     cc = cc or (5, 0)
     cres = compile_cuda(pyfunc, return_type, args, debug=debug,
@@ -151,7 +155,8 @@ def compile_ptx_soa(pyfunc, sig, debug=False, lineinfo=False, device=False,
     tgt = cres.target_context
 
     if device:
-        lib = soa_wrap_function(tgt, cres.library, cres.fndesc, nvvm_options)
+        lib = soa_wrap_function(tgt, cres.library, cres.fndesc, nvvm_options,
+                                wrapper_name)
     else:
         code = pyfunc.__code__
         filename = code.co_filename
