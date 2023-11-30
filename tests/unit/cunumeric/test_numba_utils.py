@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-
 import pytest
 import typing
 from cunumeric.numba_utils import compile_ptx_soa
@@ -32,3 +31,9 @@ def test_soa(addsub) -> None:
     signature = UniTuple(int32, 2)(int32, int32)
     ptx, resty = compile_ptx_soa(addsub, signature, device=True)
     print(ptx)
+
+
+if __name__ == "__main__":
+    import sys
+
+    sys.exit(pytest.main(sys.argv))
