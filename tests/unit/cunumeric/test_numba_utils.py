@@ -13,10 +13,10 @@
 # limitations under the License.
 #
 import pytest
+import re
 import typing
 from cunumeric.numba_utils import compile_ptx_soa
-from numba.core.typing.templates import Signature
-from numba.types import int32, int64, float32, float64, UniTuple
+from numba.types import int32, UniTuple
 
 
 @pytest.fixture
@@ -30,7 +30,9 @@ def addsub() -> typing.Callable:
 def test_soa(addsub) -> None:
     signature = UniTuple(int32, 2)(int32, int32)
     ptx, resty = compile_ptx_soa(addsub, signature, device=True)
-    print(ptx)
+    fn_def_pattern = r"\.visible\s+\.func\s+addsub"
+    assert re.search(fn_def_pattern, ptx)
+    assert resty == UniTuple(int32, 2)
 
 
 if __name__ == "__main__":
