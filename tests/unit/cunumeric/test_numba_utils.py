@@ -1,4 +1,4 @@
-# Copyright 2021-2022 NVIDIA Corporation
+# Copyright 2023 NVIDIA Corporation
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ import pytest
 import re
 import typing
 from cunumeric.numba_utils import compile_ptx_soa
-from numba.types import int32, int64, UniTuple
+from numba.types import int32, int64, float32, float64, Tuple, UniTuple
 
 
 @pytest.fixture
@@ -123,6 +123,8 @@ def test_soa_arg_types(addsub) -> None:
 
 
 def test_soa_more_args(addsubmul) -> None:
+    # A test with three arguments, but only two return values
+
     signature = UniTuple(int32, 2)(int32, int32, int32)
     ptx, resty = compile_ptx_soa(addsubmul, signature, device=True)
 
@@ -141,6 +143,8 @@ def test_soa_more_args(addsubmul) -> None:
 
 
 def test_soa_more_returns(addsubconst) -> None:
+    # Test with two arguments and three return values
+
     signature = UniTuple(int32, 3)(int32, int32)
     ptx, resty = compile_ptx_soa(addsubconst, signature, device=True)
 
@@ -156,6 +160,38 @@ def test_soa_more_returns(addsubconst) -> None:
     # The remaining two parameters should be treated as 32 bit integers
     assert re.search(param_pattern("addsubconst", 3, "u32", "r"), ptx)
     assert re.search(param_pattern("addsubconst", 4, "u32", "r"), ptx)
+
+
+def test_soa_varying_types(addsub) -> None:
+    # Argument types differ from each other and the return type
+
+    signature = UniTuple(float64, 2)(int32, float32)
+    ptx, resty = compile_ptx_soa(addsub, signature, device=True)
+
+    # The first two parameters should be treated as pointers (u64 values)
+    assert re.search(param_pattern("addsub", 0, "u64", "rd"), ptx)
+    assert re.search(param_pattern("addsub", 1, "u64", "rd"), ptx)
+
+    # The remaining two parameters should be a 32-bit integer and a 32-bit
+    # float
+    assert re.search(param_pattern("addsub", 2, "u32", "r"), ptx)
+    assert re.search(param_pattern("addsub", 3, "f32", "f"), ptx)
+
+    # There should be a 64-bit floating point store for the result
+    assert re.search(r"st\.f64", ptx)
+
+
+def test_soa_heterogeneous_return_type(addsubconst) -> None:
+    # Test with return values of different types
+
+    signature = Tuple((float32, float64, int32))(float32, float32)
+    ptx, resty = compile_ptx_soa(addsubconst, signature, device=True)
+
+    # There should be 32- and 64-bit floating point, and 32-bit integer stores
+    # for the result
+    assert re.search(r"st\.f32", ptx)
+    assert re.search(r"st\.f64", ptx)
+    assert re.search(r"st\.u32", ptx)
 
 
 if __name__ == "__main__":
