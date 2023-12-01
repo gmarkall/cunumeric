@@ -27,6 +27,40 @@ def addsub() -> typing.Callable:
     return addsub
 
 
+@pytest.fixture
+def addsubmul() -> typing.Callable:
+    def addsubmul(a, x, y):
+        return a * (x + y), a * (x - y)
+
+    return addsubmul
+
+
+@pytest.fixture
+def addsubconst() -> typing.Callable:
+    def addsubconst(x, y):
+        return x + y, x - y, 3
+
+    return addsubconst
+
+
+def param_pattern(function_name: str,
+                  param_index: int,
+                  param_type: str,
+                  reg_prefix: str) -> str:
+    """
+    A helper function to generate patterns for recognizing parameter references
+    in PTX functions - an example of a parameter reference looks like:
+
+        ld.param.u64 %rd1, [addsubconst_param_0];
+
+    These usually appear at the beginning of a function.
+    """
+    return (fr"ld\.param\.{param_type}"
+            fr"\s+%{reg_prefix}[0-9]+,\s+"
+            fr"\[{function_name}_param_"
+            fr"{param_index}\]")
+
+
 def test_soa(addsub) -> None:
     # A basic test of compilation with an SoA interface
 
@@ -46,12 +80,12 @@ def test_soa(addsub) -> None:
     assert not re.search("addsub_param_4", ptx)
 
     # The first two parameters should be treated as pointers (u64 values)
-    assert re.search(r"ld\.param\.u64\s+%rd[0-9]+,\s+\[addsub_param_0\]", ptx)
-    assert re.search(r"ld\.param\.u64\s+%rd[0-9]+,\s+\[addsub_param_1\]", ptx)
+    assert re.search(param_pattern("addsub", 0, "u64", "rd"), ptx)
+    assert re.search(param_pattern("addsub", 1, "u64", "rd"), ptx)
 
     # The remaining two parameters should be treated as 32 bit integers
-    assert re.search(r"ld\.param\.u32\s+%r[0-9]+,\s+\[addsub_param_2\]", ptx)
-    assert re.search(r"ld\.param\.u32\s+%r[0-9]+,\s+\[addsub_param_3\]", ptx)
+    assert re.search(param_pattern("addsub", 2, "u32", "r"), ptx)
+    assert re.search(param_pattern("addsub", 3, "u32", "r"), ptx)
 
 
 def test_soa_fn_name(addsub) -> None:
@@ -86,6 +120,42 @@ def test_soa_arg_types(addsub) -> None:
     # So we test the bit width of the parameters only:
     assert re.search(r".param\s+.b32\s+addsub_param_2", ptx)
     assert re.search(r".param\s+.b64\s+addsub_param_3", ptx)
+
+
+def test_soa_more_args(addsubmul) -> None:
+    signature = UniTuple(int32, 2)(int32, int32, int32)
+    ptx, resty = compile_ptx_soa(addsubmul, signature, device=True)
+
+    # The function should have 5 parameters (numbered 0 to 4)
+    assert re.search("addsubmul_param_4", ptx)
+    assert not re.search("addsubmul_param_5", ptx)
+
+    # The first two parameters should be treated as pointers (u64 values)
+    assert re.search(param_pattern("addsubmul", 0, "u64", "rd"), ptx)
+    assert re.search(param_pattern("addsubmul", 1, "u64", "rd"), ptx)
+
+    # The remaining three parameters should be treated as 32 bit integers
+    assert re.search(param_pattern("addsubmul", 2, "u32", "r"), ptx)
+    assert re.search(param_pattern("addsubmul", 3, "u32", "r"), ptx)
+    assert re.search(param_pattern("addsubmul", 4, "u32", "r"), ptx)
+
+
+def test_soa_more_returns(addsubconst) -> None:
+    signature = UniTuple(int32, 3)(int32, int32)
+    ptx, resty = compile_ptx_soa(addsubconst, signature, device=True)
+
+    # The function should have 5 parameters (numbered 0 to 4)
+    assert re.search("addsubconst_param_4", ptx)
+    assert not re.search("addsubconst_param_5", ptx)
+
+    # The first three parameters should be treated as pointers (u64 values)
+    assert re.search(param_pattern("addsubconst", 0, "u64", "rd"), ptx)
+    assert re.search(param_pattern("addsubconst", 1, "u64", "rd"), ptx)
+    assert re.search(param_pattern("addsubconst", 2, "u64", "rd"), ptx)
+
+    # The remaining two parameters should be treated as 32 bit integers
+    assert re.search(param_pattern("addsubconst", 3, "u32", "r"), ptx)
+    assert re.search(param_pattern("addsubconst", 4, "u32", "r"), ptx)
 
 
 if __name__ == "__main__":
