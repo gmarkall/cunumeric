@@ -1,0 +1,3 @@
+class _CompilerLock: ...
+
+global_compiler_lock = _CompilerLock()
